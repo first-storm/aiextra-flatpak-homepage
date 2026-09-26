@@ -6,7 +6,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const dist = 'dist';
-const site = new URL(process.env.SITE_URL || 'https://first-storm.github.io/aiextra/');
+const site = new URL(process.env.SITE_URL || 'https://aiextra.cocoabrew.cc/');
 const base = site.pathname.endsWith('/') ? site.pathname : `${site.pathname}/`;
 const siteRoot = new URL(base, site).href;
 const errors = [];

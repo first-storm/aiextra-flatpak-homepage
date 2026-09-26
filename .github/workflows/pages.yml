@@ -3,7 +3,7 @@
 #   - hourly schedule: rebuilds only when upstream main has a new commit
 #     (compared with the sha recorded in the deployed sync.json)
 #   - repository_dispatch "upstream-updated": instant rebuild, if upstream
-#     pings this repo after publishing (see README)
+#     sends it to this repo after publishing
 #   - push / manual run: always rebuilds
 name: Pages
 
@@ -20,6 +20,7 @@ permissions:
   contents: read
 
 env:
+  SITE_URL: https://aiextra.cocoabrew.cc/
   UPSTREAM_REPO: https://github.com/first-storm/aiextra-flatpak
   UPSTREAM_BRANCH: main
 
@@ -28,7 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write # keep-alive: re-enable this workflow
-      pages: read # read the deployed site URL
     outputs:
       sha: ${{ steps.upstream.outputs.sha }}
       build: ${{ steps.upstream.outputs.build }}
@@ -51,8 +51,6 @@ jobs:
 
       - name: Compare upstream with the deployed site
         id: upstream
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           sha=$(git ls-remote "$UPSTREAM_REPO" "refs/heads/$UPSTREAM_BRANCH" | cut -f1)
           [ -n "$sha" ] || { echo "::error::could not resolve upstream $UPSTREAM_BRANCH"; exit 1; }
@@ -61,8 +59,7 @@ jobs:
 
           build=true
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            site=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url 2>/dev/null || true)
-            deployed=$(curl -fsSL "${site%/}/sync.json" 2>/dev/null | jq -r '.upstreamSha // empty' || true)
+            deployed=$(curl -fsSL "${SITE_URL%/}/sync.json" 2>/dev/null | jq -r '.upstreamSha // empty' || true)
             echo "deployed: ${deployed:-unknown}"
             [ "$deployed" = "$sha" ] && build=false
           fi
@@ -106,17 +103,13 @@ jobs:
 
       - name: Build
         run: |
-          if [ -n "$PAGES_URL" ]; then export SITE_URL="${PAGES_URL%/}/"; fi
-          echo "SITE_URL=${SITE_URL:-<astro.config default>}"
           npm run build
           npm run check
-        env:
-          PAGES_URL: ${{ steps.pages.outputs.base_url }}
 
       - name: Pages is not set up
         if: needs.check.outputs.deploy == 'true' && steps.pages.outcome == 'failure'
         run: |
-          echo "::error title=GitHub Pages is not enabled::The site built fine but cannot be deployed. In Settings -> Pages set Source to 'GitHub Actions', then re-run this workflow. To publish at first-storm.github.io/aiextra/, also rename this repository to 'aiextra'."
+          echo "::error title=GitHub Pages is not enabled::The site built fine but cannot be deployed. In Settings -> Pages set Source to 'GitHub Actions' and Custom domain to aiextra.cocoabrew.cc, then re-run this workflow."
           exit 1
 
       - uses: actions/upload-pages-artifact@v3
