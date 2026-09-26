@@ -96,9 +96,12 @@ jobs:
         env:
           UPSTREAM_REF: ${{ needs.check.outputs.sha }}
 
+      # Fails until Pages is enabled; the site is still built and checked
+      # below so the error at the end is the only thing left to fix.
       - name: Configure Pages
         id: pages
         if: needs.check.outputs.deploy == 'true'
+        continue-on-error: true
         uses: actions/configure-pages@v5
 
       - name: Build
@@ -109,6 +112,12 @@ jobs:
           npm run check
         env:
           PAGES_URL: ${{ steps.pages.outputs.base_url }}
+
+      - name: Pages is not set up
+        if: needs.check.outputs.deploy == 'true' && steps.pages.outcome == 'failure'
+        run: |
+          echo "::error title=GitHub Pages is not enabled::The site built fine but cannot be deployed. In Settings -> Pages set Source to 'GitHub Actions', then re-run this workflow. To publish at first-storm.github.io/aiextra/, also rename this repository to 'aiextra'."
+          exit 1
 
       - uses: actions/upload-pages-artifact@v3
         if: needs.check.outputs.deploy == 'true'
