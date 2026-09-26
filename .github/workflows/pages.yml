@@ -4,12 +4,14 @@
 #     (compared with the sha recorded in the deployed sync.json)
 #   - repository_dispatch "upstream-updated": instant rebuild, if upstream
 #     sends it to this repo after publishing
-#   - push / manual run: always rebuilds
+#   - push to main / manual run: always rebuilds
 name: Pages
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   schedule:
     - cron: "23 * * * *"
   workflow_dispatch:
@@ -36,16 +38,13 @@ jobs:
     steps:
       - name: Decide whether this run deploys
         id: target
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          # schedule and repository_dispatch always run on the default branch
-          # (and their payloads carry no repository.default_branch).
-          case "$GITHUB_EVENT_NAME" in
-            schedule|repository_dispatch) deploy=true ;;
-            pull_request) deploy=false ;;
-            *) [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] && deploy=true || deploy=false ;;
-          esac
+          # Only main deploys; pull requests just build and check.
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            deploy=true
+          else
+            deploy=false
+          fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
           echo "deploy: $deploy"
 
