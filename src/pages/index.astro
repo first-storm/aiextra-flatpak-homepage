@@ -1,0 +1,162 @@
+---
+import Base from '../layouts/Base.astro';
+import Cmd from '../components/Cmd.astro';
+import { loadUpstream } from '../lib/upstream';
+import { SITE_NAME, abs, appPath, clip, formatDate, href, iconPath, listJoin } from '../lib/site';
+
+const up = await loadUpstream();
+const { apps, remote, key } = up;
+const names = apps.map((a) => a.name);
+const remoteAdd = `flatpak remote-add --if-not-exists ${remote.name} ${remote.url}`;
+const electronBase = apps.every((a) => a.base === apps[0].base && /Electron/.test(a.base)) ? apps[0].base : null;
+const allArches = [...new Set(apps.flatMap((a) => a.arches))];
+
+const title = `${SITE_NAME}: ${listJoin(names)} Flatpaks for Linux`;
+const description = clip(
+  `Install ${listJoin(names)} on any Linux distro with Flatpak. Signed, unofficial repo; apps come straight from their vendors.`,
+);
+
+const faq = [
+  {
+    q: `Is ${SITE_NAME} official?`,
+    a: `No. The packaging is unofficial and independently maintained. It is not affiliated with ${listJoin([...new Set(apps.map((a) => a.developer))])}. The apps themselves are the vendors' own Linux builds, downloaded from their servers when you install.`,
+  },
+  {
+    q: 'Why not Flathub?',
+    a: `In line with Flathub's Generative AI policy, these manifests are not submitted to Flathub as-is. The repository also serves as a reference proof of concept: you may reuse or adapt anything in it for your own Flathub submission under the ${up.license ?? 'project'} licence.`,
+  },
+  {
+    q: 'Which CPU architectures are supported?',
+    a: `Each app publishes ${listJoin(allArches)} builds where the vendor offers them; the app list above shows what is available per app. Flatpak picks the right one for your machine automatically.`,
+  },
+  {
+    q: 'How do I update the apps?',
+    a: `Run flatpak update, or use your software centre. The repository checks every vendor for new releases ${up.updateEvery ?? 'on a schedule'} and publishes updates automatically.`,
+  },
+  {
+    q: 'I get a GPG verification error after the repository started signing. What now?',
+    a: `If you added the remote before signing was introduced, your local configuration still has gpg-verify=false cached. Remove the remote with flatpak remote-delete ${remote.name} and add it again with the command above.`,
+  },
+  {
+    q: 'How do I uninstall an app or remove the repository?',
+    a: `Run flatpak uninstall <app-id> to remove an app, and flatpak remote-delete ${remote.name} to remove the repository once no installed app uses it.`,
+  },
+];
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: SITE_NAME,
+    url: abs(),
+    description,
+    inLanguage: 'en',
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: `Apps in the ${SITE_NAME} Flatpak repository`,
+    itemListElement: apps.map((a, i) => ({ '@type': 'ListItem', position: i + 1, url: abs(appPath(a.id)), name: a.name })),
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+  },
+];
+---
+
+<Base title={title} description={description} path="" jsonLd={jsonLd}>
+  <h1>AI desktop apps for Linux, packaged as Flatpaks</h1>
+  <p class="lead">
+    {SITE_NAME} is an unofficial Flatpak repository for {listJoin(names)}. It works on any Linux distribution with
+    Flatpak. Each app is downloaded from its vendor at install time and checked against a pinned SHA-256 hash.
+  </p>
+
+  <h2 id="install">Install</h2>
+  <p>Add the repository once:</p>
+  <Cmd lines={[remoteAdd]} label="Add the repository" />
+  <p>Then install any app by its ID, for example:</p>
+  <Cmd lines={[`flatpak install ${remote.name} ${apps[0].id}`]} label="Install an app" />
+  <p>
+    <code>flatpak install</code> accepts several IDs at once. Apps then show up in your application menu and in GNOME
+    Software or KDE Discover.
+  </p>
+
+  <h2 id="apps">Apps</h2>
+  <ul class="apps">
+    {
+      apps.map((a) => (
+        <li>
+          {a.iconFile ? (
+            <img src={href(iconPath(a.id))} width="48" height="48" alt="" loading="lazy" decoding="async" />
+          ) : (
+            <span />
+          )}
+          <h3>
+            <a href={href(appPath(a.id))}>{a.name}</a>
+          </h3>
+          <p>{a.summary}</p>
+          <p class="meta">
+            <code>{a.id}</code>
+            {a.latest && (
+              <>
+                {' '}· {a.latest.version} ({formatDate(a.latest.date)})
+              </>
+            )}{' '}
+            · {a.arches.join(', ')}
+          </p>
+        </li>
+      ))
+    }
+  </ul>
+
+  <h2 id="how-it-works">How it works</h2>
+  <p>
+    The repository does not host the apps. Each manifest uses Flatpak's
+    <a href="https://docs.flatpak.org/en/latest/module-sources.html#extra-data"><code>extra-data</code></a> source type,
+    so <code>flatpak install</code> downloads the app on your machine straight from its vendor
+    ({listJoin([...new Set(apps.flatMap((a) => a.sources.map((s) => s.host)))])}) and checks it against the size and
+    SHA-256 recorded in the manifest. {SITE_NAME} provides only the wrapper: the desktop entry, icons, sandbox
+    permissions and launcher.
+  </p>
+  {
+    electronBase && (
+      <p>
+        Every app runs on <code>{electronBase}</code> with <a href="https://github.com/refi64/zypak">zypak</a>, so
+        Chromium's own sandbox keeps working inside the Flatpak sandbox.
+      </p>
+    )
+  }
+
+  <h2 id="signing">Signed repository</h2>
+  <p>
+    CI signs every OSTree commit and the repository summary. The <code>{remote.file}</code> file embeds the public key,
+    so <code>flatpak remote-add</code> turns signature verification on automatically.
+  </p>
+  {
+    key && (
+      <p>
+        Key fingerprint: <span class="fingerprint">{key.fingerprint}</span> (<a href={key.keyUrl}>armored public key</a>).
+      </p>
+    )
+  }
+
+  <h2 id="updates">Updates</h2>
+  <p>
+    A job checks every app's upstream source {up.updateEvery ?? 'on a schedule'} with
+    <a href="https://github.com/flathub/flatpak-external-data-checker">flatpak-external-data-checker</a>. New vendor
+    releases and packaging fixes both reach you through <code>flatpak update</code>. Follow new versions in the
+    <a href={href('releases.xml')}>release feed</a>.
+  </p>
+
+  <h2 id="faq">FAQ</h2>
+  {
+    faq.map((f) => (
+      <details>
+        <summary>{f.q}</summary>
+        <p>{f.a}</p>
+      </details>
+    ))
+  }
+</Base>

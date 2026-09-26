@@ -1,0 +1,10 @@
+---
+// A copyable shell command block; one <code> per line.
+interface Props {
+  lines: string[];
+  label?: string;
+}
+const { lines, label } = Astro.props;
+---
+
+<pre class="cmd" aria-label={label}>{lines.map((l) => <code>{l}</code>)}</pre>

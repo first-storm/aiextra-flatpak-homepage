@@ -1,0 +1,28 @@
+{
+  "name": "aiextra-homepage",
+  "private": true,
+  "type": "module",
+  "description": "Homepage for the AI Extra Flatpak repository, generated from first-storm/aiextra-flatpak",
+  "scripts": {
+    "sync": "node scripts/fetch-upstream.mjs",
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "check": "node scripts/check-dist.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@astrojs/rss": "^4.0.19",
+    "astro": "^7.3.5",
+    "fast-xml-parser": "^5.11.1",
+    "marked": "^18.0.14",
+    "openpgp": "^6.3.2",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "typescript": "^6.0.3"
+  }
+}

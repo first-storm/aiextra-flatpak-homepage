@@ -1,0 +1,240 @@
+---
+import Base from '../../layouts/Base.astro';
+import Cmd from '../../components/Cmd.astro';
+import { loadUpstream, type App } from '../../lib/upstream';
+import { SITE_NAME, abs, appPath, clip, docPath, formatDate, href, iconPath, licenseLabel, listJoin } from '../../lib/site';
+
+export async function getStaticPaths() {
+  const up = await loadUpstream();
+  return up.apps.map((app) => ({ params: { id: app.id }, props: { app } }));
+}
+
+const { app } = Astro.props as { app: App };
+const up = await loadUpstream();
+const { remote } = up;
+const hosts = app.sources.map((s) => s.host);
+const others = up.apps.filter((a) => a.id !== app.id);
+const docs = up.docs.filter((d) => app.docs.includes(d.slug));
+const RELEASES_SHOWN = 15;
+
+const URL_LABELS: Record<string, string> = {
+  homepage: 'Official website',
+  bugtracker: 'Report a bug',
+  help: 'Help',
+  faq: 'FAQ',
+  vcs_browser: 'Source code',
+  contact: 'Contact',
+};
+
+// schema.org applicationCategory from the AppStream main categories.
+const category =
+  app.categories.includes('Development')
+    ? 'DeveloperApplication'
+    : app.categories.some((c) => c === 'Chat' || c === 'Network')
+      ? 'CommunicationApplication'
+      : 'UtilitiesApplication';
+
+const title = `${app.name} for Linux: install with Flatpak | ${SITE_NAME}`;
+const description = clip(
+  `Install ${app.name} on Linux with Flatpak: ${app.summary.replace(/\.$/, '')}.` +
+    (app.latest ? ` Version ${app.latest.version}` : ' Available') +
+    ` for ${listJoin(app.arches)}, fetched from ${app.developer} and SHA-256 verified.`,
+);
+
+const crumbs = [
+  { name: SITE_NAME, path: '' },
+  { name: app.name, path: appPath(app.id) },
+];
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: app.name,
+    alternateName: app.id,
+    description: app.descriptionText || app.summary,
+    url: abs(appPath(app.id)),
+    applicationCategory: category,
+    operatingSystem: 'Linux',
+    processorRequirements: app.arches.join(', '),
+    ...(app.latest && { softwareVersion: app.latest.version, dateModified: app.latest.date }),
+    ...(app.iconFile && { image: abs(iconPath(app.id)) }),
+    ...(app.developer && { author: { '@type': 'Organization', name: app.developer, ...(app.urls.homepage && { url: app.urls.homepage }) } }),
+    installUrl: remote.url,
+    ...(app.releases.length && { datePublished: app.releases.at(-1)!.date }),
+  },
+];
+---
+
+<Base
+  title={title}
+  description={description}
+  path={appPath(app.id)}
+  crumbs={crumbs}
+  jsonLd={jsonLd}
+  image={app.iconFile ? { path: iconPath(app.id), width: app.iconSize, height: app.iconSize, alt: `${app.name} icon` } : undefined}
+>
+  <div class="app-head">
+    {app.iconFile && <img src={href(iconPath(app.id))} width="64" height="64" alt={`${app.name} icon`} />}
+    <h1>{app.name} for Linux (Flatpak)</h1>
+  </div>
+  <p class="lead">{app.summary}. Unofficial Flatpak of the {app.developer} desktop app.</p>
+
+  <h2 id="install">Install {app.name}</h2>
+  <Cmd lines={[`flatpak remote-add --if-not-exists ${remote.name} ${remote.url}`, `flatpak install ${remote.name} ${app.id}`]} label={`Install ${app.name}`} />
+  <p>Start it from your application menu, or run:</p>
+  <Cmd lines={[`flatpak run ${app.id}`]} label={`Run ${app.name}`} />
+  <p>
+    Update with <code>flatpak update</code>. Uninstall with <code>flatpak uninstall {app.id}</code>.
+    {hosts.length > 0 && <>The first install downloads {app.name} from {listJoin(hosts)}, so it can take a moment.</>}
+  </p>
+
+  <h2 id="about">About</h2>
+  <Fragment set:html={app.descriptionHtml} />
+
+  <h2 id="details">Details</h2>
+  <dl class="facts">
+    <dt>App ID</dt>
+    <dd><code>{app.id}</code></dd>
+    {
+      app.latest && (
+        <>
+          <dt>Latest version</dt>
+          <dd>
+            {app.latest.version} (<time datetime={app.latest.date}>{formatDate(app.latest.date)}</time>)
+          </dd>
+        </>
+      )
+    }
+    <dt>Architectures</dt>
+    <dd>{app.arches.join(', ')}</dd>
+    {
+      hosts.length > 0 && (
+        <>
+          <dt>Downloaded from</dt>
+          <dd>{hosts.join(', ')}</dd>
+        </>
+      )
+    }
+    <dt>Developer</dt>
+    <dd>{app.developer}</dd>
+    <dt>Licence</dt>
+    <dd>{licenseLabel(app.license)}</dd>
+    {
+      app.runtime && (
+        <>
+          <dt>Runtime</dt>
+          <dd>
+            <code>{app.runtime}</code>
+          </dd>
+        </>
+      )
+    }
+    {
+      app.categories.length > 0 && (
+        <>
+          <dt>Categories</dt>
+          <dd>{app.categories.join(', ')}</dd>
+        </>
+      )
+    }
+    {
+      Object.entries(app.urls).map(([type, url]) => (
+        <>
+          <dt>{URL_LABELS[type] ?? type}</dt>
+          <dd>
+            <a href={url} rel="nofollow">{url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a>
+          </dd>
+        </>
+      ))
+    }
+    <dt>Manifest</dt>
+    <dd><a href={app.manifestUrl}>manifests/{app.id}</a></dd>
+  </dl>
+
+  {
+    app.permissions.length > 0 && (
+      <>
+      <h2 id="permissions">Sandbox permissions</h2>
+      <p>What the Flatpak sandbox allows {app.name} to access:</p>
+      <ul class="perms">
+        {
+          app.permissions.map((p) => (
+            <li class={p.notable ? 'notable' : undefined}>
+              {p.label} <code>{p.args.join(' ')}</code>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="meta">
+        Adjust these with <code>flatpak override</code> or <a href="https://flathub.org/apps/com.github.tchx84.Flatseal">Flatseal</a>.
+      </p>
+      </>
+    )
+  }
+
+  {
+    docs.length > 0 && (
+      <>
+        <h2 id="guides">Guides</h2>
+        <ul>
+          {docs.map((d) => (
+            <li>
+              <a href={href(docPath(d.slug))}>{d.title}</a>
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  {
+    app.releases.length > 0 && (
+      <>
+        <h2 id="releases">Release history</h2>
+        <p>{app.name} versions packaged by {SITE_NAME}, newest first:</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Version</th>
+                <th scope="col">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {app.releases.slice(0, RELEASES_SHOWN).map((r) => (
+                <tr>
+                  <td>{r.version}</td>
+                  <td>
+                    <time datetime={r.date}>{formatDate(r.date)}</time>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {app.releases.length > RELEASES_SHOWN && (
+          <p class="meta">
+            {app.releases.length - RELEASES_SHOWN} older releases are listed in the{' '}
+            <a href={`${app.manifestUrl}/${app.id}.metainfo.xml`}>AppStream metadata</a>.
+          </p>
+        )}
+      </>
+    )
+  }
+
+  {
+    others.length > 0 && (
+      <>
+        <h2 id="more">More apps in {SITE_NAME}</h2>
+        <ul>
+          {others.map((a) => (
+            <li>
+              <a href={href(appPath(a.id))}>{a.name}</a>: {a.summary}
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+</Base>

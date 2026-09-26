@@ -1,0 +1,16 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadUpstream } from '../lib/upstream';
+import { SITE_NAME, appPath, href } from '../lib/site';
+
+const up = await loadUpstream();
+---
+
+<Base title={`Page not found | ${SITE_NAME}`} description="This page does not exist." path="404.html" noindex>
+  <h1>Page not found</h1>
+  <p>This page does not exist. It may belong to an app that was removed from the repository.</p>
+  <p><a href={href()}>Go to the {SITE_NAME} homepage</a>, or pick an app:</p>
+  <ul>
+    {up.apps.map((a) => <li><a href={href(appPath(a.id))}>{a.name}</a></li>)}
+  </ul>
+</Base>

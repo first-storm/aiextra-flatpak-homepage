@@ -1,0 +1,143 @@
+---
+import '../styles/global.css';
+import { loadUpstream } from '../lib/upstream';
+import { SITE_NAME, abs, href, formatDate } from '../lib/site';
+
+interface Crumb {
+  name: string;
+  path: string;
+}
+
+interface Props {
+  title: string;
+  description: string;
+  path: string; // site-relative path of this page, '' for home
+  image?: { path: string; width: number; height: number; alt: string };
+  jsonLd?: object[];
+  crumbs?: Crumb[];
+  noindex?: boolean;
+}
+
+const { title, description, path, image, jsonLd = [], crumbs = [], noindex = false } = Astro.props;
+const up = await loadUpstream();
+const canonical = abs(path);
+const og = image ?? { path: 'og.png', width: 1200, height: 630, alt: `${SITE_NAME}: AI desktop apps for Linux as Flatpaks` };
+
+const breadcrumbLd = crumbs.length
+  ? [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: abs(c.path) })),
+      },
+    ]
+  : [];
+const ld = [...jsonLd, ...breadcrumbLd];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href={href('favicon.svg')} type="image/svg+xml" />
+    <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} releases`} href={href('releases.xml')} />
+    <link rel="sitemap" type="application/xml" href={href('sitemap.xml')} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={abs(og.path)} />
+    <meta property="og:image:width" content={String(og.width)} />
+    <meta property="og:image:height" content={String(og.height)} />
+    <meta property="og:image:alt" content={og.alt} />
+    <meta property="og:locale" content="en_GB" />
+    <meta name="twitter:card" content={og.width >= 600 && og.width !== og.height ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={abs(og.path)} />
+
+    {ld.map((obj) => <script type="application/ld+json" set:html={JSON.stringify(obj)} />)}
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site">
+      <a class="brand" href={href()}>{SITE_NAME}</a>
+      <nav aria-label="Main">
+        <a href={`${href()}#apps`}>Apps</a>
+        <a href={`${href()}#install`}>Install</a>
+        <a href={`${href()}#faq`}>FAQ</a>
+        <a href="https://github.com/first-storm/aiextra-flatpak">GitHub</a>
+      </nav>
+    </header>
+
+    {
+      crumbs.length > 1 && (
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <ol>
+            {crumbs.map((c, i) =>
+              i < crumbs.length - 1 ? (
+                <li>
+                  <a href={href(c.path)}>{c.name}</a>
+                </li>
+              ) : (
+                <li aria-current="page">{c.name}</li>
+              ),
+            )}
+          </ol>
+        </nav>
+      )
+    }
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="site">
+      <p>
+        {SITE_NAME} is an unofficial, community-maintained Flatpak repository. It is not affiliated with or endorsed by
+        {' '}{[...new Set(up.apps.map((a) => a.developer).filter(Boolean))].join(', ')}, or Flathub. Product names and
+        icons belong to their owners. Packaging is
+        {' '}<a href="https://github.com/first-storm/aiextra-flatpak/blob/main/LICENSE">{up.license ?? 'open source'}-licensed</a>.
+      </p>
+      <p>
+        Generated from
+        {' '}<a href={`https://github.com/first-storm/aiextra-flatpak/commit/${up.sha}`}><code>{up.sha.slice(0, 7)}</code></a>
+        {' '}(<time datetime={up.date}>{formatDate(up.date)}</time>) ·
+        {' '}<a href={href('releases.xml')}>Release feed</a> ·
+        {' '}<a href="https://github.com/first-storm/aiextra-flatpak-homepage">Site source</a>
+      </p>
+    </footer>
+
+    <script is:inline>
+      // Progressive enhancement: add a copy button to every command block.
+      if (navigator.clipboard) {
+        for (const pre of document.querySelectorAll('pre.cmd')) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'copy';
+          b.textContent = 'Copy';
+          b.addEventListener('click', async () => {
+            const text = [...pre.querySelectorAll('code')].map((c) => c.textContent).join('\n');
+            try {
+              await navigator.clipboard.writeText(text);
+              b.textContent = 'Copied';
+            } catch {
+              b.textContent = 'Failed';
+            }
+            setTimeout(() => (b.textContent = 'Copy'), 1500);
+          });
+          pre.append(b);
+        }
+      }
+    </script>
+  </body>
+</html>

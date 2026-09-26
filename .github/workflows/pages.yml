@@ -1,0 +1,133 @@
+# Builds the homepage from first-storm/aiextra-flatpak and deploys it to GitHub
+# Pages. It stays in sync with upstream three ways:
+#   - hourly schedule: rebuilds only when upstream main has a new commit
+#     (compared with the sha recorded in the deployed sync.json)
+#   - repository_dispatch "upstream-updated": instant rebuild, if upstream
+#     pings this repo after publishing (see README)
+#   - push / manual run: always rebuilds
+name: Pages
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [upstream-updated]
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_REPO: https://github.com/first-storm/aiextra-flatpak
+  UPSTREAM_BRANCH: main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # keep-alive: re-enable this workflow
+      pages: read # read the deployed site URL
+    outputs:
+      sha: ${{ steps.upstream.outputs.sha }}
+      build: ${{ steps.upstream.outputs.build }}
+      deploy: ${{ steps.target.outputs.deploy }}
+    steps:
+      - name: Decide whether this run deploys
+        id: target
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # schedule and repository_dispatch always run on the default branch
+          # (and their payloads carry no repository.default_branch).
+          case "$GITHUB_EVENT_NAME" in
+            schedule|repository_dispatch) deploy=true ;;
+            pull_request) deploy=false ;;
+            *) [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] && deploy=true || deploy=false ;;
+          esac
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "deploy: $deploy"
+
+      - name: Compare upstream with the deployed site
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git ls-remote "$UPSTREAM_REPO" "refs/heads/$UPSTREAM_BRANCH" | cut -f1)
+          [ -n "$sha" ] || { echo "::error::could not resolve upstream $UPSTREAM_BRANCH"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "upstream: $sha"
+
+          build=true
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            site=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url 2>/dev/null || true)
+            deployed=$(curl -fsSL "${site%/}/sync.json" 2>/dev/null | jq -r '.upstreamSha // empty' || true)
+            echo "deployed: ${deployed:-unknown}"
+            [ "$deployed" = "$sha" ] && build=false
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "build: $build"
+
+      # GitHub disables scheduled workflows after 60 days without repository
+      # activity. Syncing never commits, so re-enable ourselves on each tick.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/pages.yml/enable" || true
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fetch upstream
+        run: npm run sync
+        env:
+          UPSTREAM_REF: ${{ needs.check.outputs.sha }}
+
+      - name: Configure Pages
+        id: pages
+        if: needs.check.outputs.deploy == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Build
+        run: |
+          if [ -n "$PAGES_URL" ]; then export SITE_URL="${PAGES_URL%/}/"; fi
+          echo "SITE_URL=${SITE_URL:-<astro.config default>}"
+          npm run build
+          npm run check
+        env:
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+
+      - uses: actions/upload-pages-artifact@v3
+        if: needs.check.outputs.deploy == 'true'
+        with:
+          path: dist
+
+  deploy:
+    needs: [check, build]
+    if: needs.check.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
