@@ -11,7 +11,7 @@ const remoteAdd = `flatpak remote-add --if-not-exists ${remote.name} ${remote.ur
 const electronBase = apps.every((a) => a.base === apps[0].base && /Electron/.test(a.base)) ? apps[0].base : null;
 const allArches = [...new Set(apps.flatMap((a) => a.arches))];
 
-const title = `${SITE_NAME}: ${listJoin(names)} Flatpaks for Linux`;
+const title = `${SITE_NAME}: AI desktop apps for Linux as Flatpaks`;
 const description = clip(
   `Install ${listJoin(names)} on any Linux distro with Flatpak. Signed, unofficial repo; apps come straight from their vendors.`,
 );
